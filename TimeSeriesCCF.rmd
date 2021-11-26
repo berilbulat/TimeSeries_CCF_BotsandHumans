@@ -1,0 +1,139 @@
+---
+title: "Time Series CCF script"
+output: html_notebook
+---
+
+```{r}
+
+myData = read.csv("xxxxx.csv")
+ts1 <- myData$ts1
+ts2 <- myData$ts2
+
+```
+
+#### Specify a model for ts1
+
+```{r}
+tsplot(ts1)
+adf.test(ts1)
+kpss.test(ts1, null = "Trend")
+#If ts1 fails stationarity tests
+adf.test(diff(ts1))
+kpss.test(diff(ts1), null = "Level")
+
+
+```
+
+#### Identify terms in the specified model 
+
+```{r}
+
+acf(diff(ts1))
+pacf(diff(ts1))
+acf(diff(ts1))
+pacf(diff(ts1))
+#Auto-arima can also be used for this 
+auto.arima(ts1)
+
+
+```
+#### Model fit assessment
+```{r}
+m1 = sarima(ts1, 1, 1, 2 , no.constant=TRUE)
+
+
+
+```
+
+#### Pre-whitening steps
+
+```{r}
+ts1w = resid(m1$fit) 
+phi = as.vector(m1$fit$coef)
+ts2f = filter(diff(ts2), filter=c(1, -phi), sides=1, circular = TRUE)
+both = ts.intersect(ts1w, ts2f)
+ts1_w = both[,1] # ts1 whitened
+ts2_f = both[,2] # ts2 filtered
+
+```
+
+
+#### Cross correlating the pre-whitened time series
+
+```{r}
+
+ccf2(ts1_w, ts2_f)
+values = ccf(ts1_w, ts2_f, type = "correlation")
+values
+lag2.plot(ts1_w, ts2_f, 15, corr = TRUE, smooth = TRUE, col = gray(.1))
+
+```
+
+
+#### Granger test the identified lags for sanity check 
+
+
+```{r}
+
+grangertest(ts1_w, ts2_f, order = 1)
+
+```
+
+#### Plotting results
+
+```{r}
+
+ccf_plot <- function(df, x, y, title = "Cross Correlation"){
+  df_x <- eval(substitute(x), df)
+  df_y <- eval(substitute(y), df)
+  ccf.object <- ccf(df_x, df_y, plot = FALSE)
+  output_table <- cbind(lag = ccf.object$lag, 
+                        x.corr = ccf.object$acf) %>%
+                          as_tibble() %>%
+                          mutate(cat = ifelse(x.corr > 0.23, "green", "red"))
+  output_table %>%
+    ggplot(aes(x = lag, y = x.corr)) +
+    geom_bar(stat = "identity", aes(fill = cat))+
+    theme_grey()+
+    scale_fill_manual(values = c("#cc0000", "#333333"))+
+    geom_hline(yintercept=.24, color = 'black', linetype = 'dashed', size = 0.2) +
+    geom_hline(yintercept= -.24, color = 'black', linetype = 'dashed', size = 0.2) +
+    xlab("Lags (x mins)")+
+    ylab("Correlation")+
+    geom_hline(yintercept = 0, colour = "black", size = 0.2)+
+    scale_y_continuous(limits = c(-0.25, 0.5))+
+    scale_x_continuous(breaks = seq(-19, 19, by = 1))+
+    geom_text(
+    label="95% CI", 
+    size = 2,
+    x=15,
+    y=0.26,
+    #label.padding = unit(0.25, "lines"), # Rectangle size around label
+    #label.size = 0.25,
+    color = "black",
+    #fill="#FFFFFF"
+  )+
+
+   #scale_x_continuous(breaks=seq(0.1))+
+    #theme_bw()+ 
+      labs(
+    subtitle = "XXXX" 
+     )+
+    theme(legend.position = "none", 
+          axis.ticks = element_blank(),
+          plot.title = element_text(size=8),
+          plot.subtitle = element_text(size=6),
+          axis.text = element_text(size = 4), 
+          axis.title.x = element_text(size=6),
+          axis.title.y = element_text(size=6), 
+          panel.grid.major = element_line(colour = "grey95") ,
+          panel.grid.minor = element_blank()
+    )+
+    ggtitle(title) -> p
+  ggsave(paste(title,".jpg"),plot=p,height=3.7,width=6,units="in")
+}
+
+ccf_plot(df = myData, x = ts1_w , y = ts2_f, title = "Title")
+
+
+```
